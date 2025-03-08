@@ -1,0 +1,127 @@
+------------------------------------------------------------------------
+
+## Prévision Adaptative de la Demande Électrique en France par GAM avancé
+
+Félix OLLIVIER - Lylian CHALLIER
+
+10-03-2025
+
+## Introduction
+
+L'objectif principal de ce projet est de concevoir un modèle adaptatif capable de prévoir précisément la demande électrique nette en France. Une telle approche est essentielle pour permettre aux gestionnaires du réseau électrique d’optimiser leurs coûts opérationnels, notamment dans un contexte marqué par l'intégration accrue de sources renouvelables intermittentes comme le solaire et l'éolien. La variabilité inhérente à ces sources rend nécessaire une prévision fine et robuste afin d'assurer un équilibre optimal entre l'offre et la demande d'électricité.
+
+## Description détaillée des données
+
+Les données exploitées dans ce projet proviennent de mesures de consommation et de facteurs environnementaux couvrant la période de janvier 2012 à septembre 2022. Pour réaliser une évaluation réaliste et rigoureuse du modèle proposé, le jeu de données initial (`Data0`) a été segmenté en deux ensembles distincts : un ensemble d'entraînement (`sel_a`) regroupant les données historiques jusqu'à la fin de l'année 2021, et un ensemble de validation (`sel_b`) comprenant l'ensemble des observations enregistrées durant l'année 2022. Cette méthode garantit une évaluation temporellement cohérente et représentative des performances réelles du modèle.
+
+``` r
+library(mgcv)
+library(tidyverse)
+source('score.R')
+
+# Importation et prétraitement des données
+Data0 <- read_csv('Data/train.csv')
+Data0$Time <- as.numeric(Data0$Date)
+sel_a <- which(Data0$Year <= 2021)
+sel_b <- which(Data0$Year > 2021)
+```
+
+## Méthodologie détaillée
+
+### Choix méthodologique : Modèle Additif Généralisé (GAM)
+
+Le modèle sélectionné pour ce projet est un Modèle Additif Généralisé (GAM) avancé, choisi pour sa capacité à modéliser efficacement des relations complexes, non linéaires et saisonnières entre les variables explicatives et la demande électrique nette. Le modèle proposé intègre plusieurs types de termes : des effets lisses, des interactions tensorisées, et des composantes périodiques adaptées à la saisonnalité et à la tendance de long terme.
+
+``` r
+# Formulation avancée du modèle GAM pour la prédiction de Net_demand
+equation <- Net_demand ~ s(Time, k = 3, bs = 'cr') +
+  s(toy, k = 30, bs = 'cc') +
+  ti(Temp, k = 10, bs = 'cr') +
+  ti(Temp_s99, k = 10, bs = 'cr') +
+  s(Load.1, bs = 'cr') +
+  s(Load.7, bs = 'cr') +
+  ti(Temp_s99, Temp, bs = c('cr', 'cr'), k = c(10, 10)) +
+  as.factor(WeekDays) + BH +
+  te(Temp_s95_max, Temp_s99_max) +
+  Summer_break + Christmas_break +
+  te(Temp_s95_min, Temp_s99_min) +
+  s(Wind, bs = 'cr') +
+  ti(Nebulosity_weighted) +
+  ti(Wind_weighted, Temp, bs = 'ts')
+
+# Ajustement du modèle GAM sur l'ensemble d'entraînement
+model_gam <- gam(equation, data = Data0[sel_a, ], select = TRUE, gamma = 1.5)
+```
+
+## Validation approfondie du modèle
+
+### Prévisions et indicateurs de performance
+
+Le modèle a été validé par comparaison directe entre les prédictions obtenues et les observations réelles de l'année 2022. Deux critères de performance majeurs sont utilisés : la Racine de l'Erreur Quadratique Moyenne (RMSE) et la Pinball Loss au quantile de 80% pour évaluer spécifiquement la précision des prévisions dans un contexte opérationnel réaliste.
+
+``` r
+predictions_sel_b <- predict(model_gam, newdata = Data0[sel_b, ])
+
+# Calcul du RMSE
+rmse_val <- rmse(Data0$Net_demand[sel_b], predictions_sel_b)
+print(paste('RMSE de validation :', rmse_val))
+
+# Calcul de la Pinball Loss (quantile à 80%)
+pinball_val <- pinball_loss(Data0$Net_demand[sel_b], predictions_sel_b, 0.8)
+print(paste('Pinball Loss à 0.8 :', pinball_val))
+```
+
+## Analyses graphiques détaillées
+
+### Distribution des résidus
+
+Les résidus permettent d'évaluer qualitativement la qualité des prédictions réalisées.
+
+``` r
+residus_val <- Data0$Net_demand[sel_b] - predictions_sel_b
+hist(residus_val, breaks = 30, main = "Distribution des Résidus (Validation)", xlab = "Résidus")
+```
+
+### Comparaison temporelle approfondie
+
+Une comparaison visuelle précise entre les prévisions et les observations réelles est indispensable pour juger qualitativement de la capacité prédictive du modèle.
+
+``` r
+plot(Data0$Date[sel_b], Data0$Net_demand[sel_b], type = 'l', col = 'black', main = 'Comparaison Prévisions/Observations', ylab = 'Demande Nette (MW)', xlab = 'Date')
+lines(Data0$Date[sel_b], predictions_sel_b, col = 'blue')
+legend("topright", legend = c("Observations", "Prévisions GAM"), col = c("black", "blue"), lty = 1)
+```
+
+### Importance et pertinence des prédicteurs
+
+L'importance relative et la contribution des variables explicatives sont illustrées et quantifiées.
+
+``` r
+summary(model_gam)
+plot(model_gam, pages=1, residuals=TRUE, shade=TRUE, main="Effets des prédicteurs dans le GAM")
+```
+
+## Validation croisée par blocs : robustesse du modèle
+
+Pour évaluer la robustesse et la stabilité du modèle, une validation croisée par blocs a été effectuée :
+
+``` r
+Nblock <- 10
+borne_block <- seq(1, length(sel_a), length = Nblock + 1) %>% floor
+
+blockRMSE <- function(equation, block) {
+  mod <- gam(as.formula(equation), data = Data0[sel_a[-block], ])
+  pred <- predict(mod, newdata = Data0[sel_a[block], ])
+  return(Data0$Net_demand[sel_a[block]] - pred)
+}
+
+residus_blocks <- lapply(1:Nblock, function(i) blockRMSE(equation, borne_block[i]:borne_block[i+1])) %>% unlist
+rmse_blocks <- rmse(residus_blocks)
+print(paste('RMSE Validation Croisée par blocs :', rmse_blocks))
+
+hist(residus_blocks, breaks = 30, main = "Résidus de Validation Croisée par Blocs", xlab = "Résidus")
+```
+
+## Conclusion et perspectives
+
+Le modèle GAM avancé présenté offre des résultats robustes et fiables, démontrant sa pertinence pour anticiper la demande électrique nette en France. À l'avenir, des améliorations pourraient être envisagées en intégrant des approches hybrides telles que GAM combiné avec des méthodes de Random Forest, ainsi que des approches adaptatives comme les modèles d'apprentissage en ligne ou les filtres de Kalman dynamiques pour accroître encore la précision des prédictions.
