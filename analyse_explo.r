@@ -1,7 +1,5 @@
 rm(list=objects())
 graphics.off()
-options(vsc.dev.args = list(width=1200, height=800, pointsize=10, res=96))
-par(mar = c(5, 5, 5, 5))  # marges : bas, gauche, haut, droite
 # Load necessary libraries
 library(mgcv)
 library(corrplot)
@@ -12,6 +10,11 @@ library(randomForest)
 library(xgboost)
 library(yarrr)
 source('R/score.R')
+# Options graphique
+options(vsc.dev.args = list(width=1200, height=800, pointsize=10, res=96))
+par(mar = c(5, 5, 5, 5))  # marges : bas, gauche, haut, droite
+col <- yarrr::piratepal("basel") # couleur des graphiques
+
 
 
 #########################
@@ -51,7 +54,6 @@ par(mfrow=c(1,1))
 plot(Data0$Date, Data0$Net_demand, type='l', xlim=range(Data0$Date, Data1$Date), main="Net_demand dans le temps")
 
 # plot variables sur temps : Load, Net_demand, Solar, Wind
-col <- yarrr::piratepal("basel")
 par(mfrow=c(2,2))
 plot(Data0$Date, Data0$Load, type='l', col=col[1], main="Load dans le temps")
 plot(Data0$Date, Data0$Net_demand, type='l', col=col[2], main="Net_demand dans le temps")
