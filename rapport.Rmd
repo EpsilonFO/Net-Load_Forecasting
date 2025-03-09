@@ -1,6 +1,4 @@
-------------------------------------------------------------------------
-
-## Prévision Adaptative de la Demande Électrique en France par GAM avancé
+# Rapport : Prédiction de la demande nette en énergie électrique
 
 Félix OLLIVIER - Lylian CHALLIER
 
@@ -8,120 +6,288 @@ Félix OLLIVIER - Lylian CHALLIER
 
 ## Introduction
 
-L'objectif principal de ce projet est de concevoir un modèle adaptatif capable de prévoir précisément la demande électrique nette en France. Une telle approche est essentielle pour permettre aux gestionnaires du réseau électrique d’optimiser leurs coûts opérationnels, notamment dans un contexte marqué par l'intégration accrue de sources renouvelables intermittentes comme le solaire et l'éolien. La variabilité inhérente à ces sources rend nécessaire une prévision fine et robuste afin d'assurer un équilibre optimal entre l'offre et la demande d'électricité.
+Ce projet s'intéresse à la prédiction de la demande nette en énergie électrique (`Net_demand`) en France, en mobilisant des approches de modélisation prédictive basées sur des données historiques couvrant la période jusqu'à fin 2021. L'objectif principal est de déterminer précisément la consommation nette (`Net_demand`) en utilisant différentes méthodes statistiques, telles que les GAM, les Random Forests et les régressions linéaires. Ce rapport présente d'abord une analyse exploratoire pour identifier les relations entre les variables et ensuite sélectionner les variables pertinentes pour maximiser la performance prédictive.
 
-## Description détaillée des données
+Avant de commencer ce rapport, veuillez exécuter le code suivant pour initialiser les données :
 
-Les données exploitées dans ce projet proviennent de mesures de consommation et de facteurs environnementaux couvrant la période de janvier 2012 à septembre 2022. Pour réaliser une évaluation réaliste et rigoureuse du modèle proposé, le jeu de données initial (`Data0`) a été segmenté en deux ensembles distincts : un ensemble d'entraînement (`sel_a`) regroupant les données historiques jusqu'à la fin de l'année 2021, et un ensemble de validation (`sel_b`) comprenant l'ensemble des observations enregistrées durant l'année 2022. Cette méthode garantit une évaluation temporellement cohérente et représentative des performances réelles du modèle.
-
-``` r
+```{r}
+rm(list=objects())
+graphics.off()
+# Load necessary libraries
 library(mgcv)
+library(corrplot)
+library(gt)
 library(tidyverse)
-source('score.R')
-
-# Importation et prétraitement des données
-Data0 <- read_csv('Data/train.csv')
+library(ranger)
+library(randomForest)
+library(xgboost)
+library(yarrr)
+source('R/score.R')
+# Options graphique
+options(vsc.dev.args = list(width=1200, height=800, pointsize=10, res=96))
+par(mar = c(5, 5, 5, 5))  # marges : bas, gauche, haut, droite
+col <- yarrr::piratepal("basel") # couleur des graphiques
+#########################
+### Import et Prepro ###
+#########################
+# Load the data
+train <- read_csv('Data/train.csv') # for training and evaluating
+test <- read_csv('Data/test.csv') # to make prediction
+# Preprocess the data
+Data0 <- train
 Data0$Time <- as.numeric(Data0$Date)
-sel_a <- which(Data0$Year <= 2021)
-sel_b <- which(Data0$Year > 2021)
+Data1 <- test
+Data1$Time <- as.numeric(Data1$Date)
+# Convert categorical variables to factors
+discret = c("WeekDays", "BH_before", "BH", "BH_after", 
+            "DLS","Summer_break", "Christmas_break", 
+            "Holiday", "Holiday_zone_a", "Holiday_zone_b", 
+            "Holiday_zone_c", "BH_Holiday")
+Data0[, discret] <- lapply(Data0[, discret], as.factor)
+Data1[, discret] <- lapply(Data1[, discret], as.factor)
+# Split Data0 into train/eval dataset
+sel_a = which(Data0$Year<=2021) # training index
+sel_b = which(Data0$Year>2021) # eval index
 ```
 
-## Méthodologie détaillée
+## Visualisation des données
 
-### Choix méthodologique : Modèle Additif Généralisé (GAM)
+### Analyse unidimensionnelle
 
-Le modèle sélectionné pour ce projet est un Modèle Additif Généralisé (GAM) avancé, choisi pour sa capacité à modéliser efficacement des relations complexes, non linéaires et saisonnières entre les variables explicatives et la demande électrique nette. Le modèle proposé intègre plusieurs types de termes : des effets lisses, des interactions tensorisées, et des composantes périodiques adaptées à la saisonnalité et à la tendance de long terme.
+Dans un premier temps, nous analysons l'évolution temporelle de la variable cible Net_demand :
 
-``` r
-# Formulation avancée du modèle GAM pour la prédiction de Net_demand
-equation <- Net_demand ~ s(Time, k = 3, bs = 'cr') +
-  s(toy, k = 30, bs = 'cc') +
-  ti(Temp, k = 10, bs = 'cr') +
-  ti(Temp_s99, k = 10, bs = 'cr') +
-  s(Load.1, bs = 'cr') +
-  s(Load.7, bs = 'cr') +
-  ti(Temp_s99, Temp, bs = c('cr', 'cr'), k = c(10, 10)) +
-  as.factor(WeekDays) + BH +
-  te(Temp_s95_max, Temp_s99_max) +
-  Summer_break + Christmas_break +
+```{r}
+plot(Data0$Date, Data0$Net_demand, type='l', xlim=range(Data0$Date, Data1$Date), main="Net_demand dans le temps")
+```
+
+Cette visualisation révèle clairement une saisonnalité annuelle marquée de la demande énergétique. De plus, nous constatons la relation directe entre la consommation totale (`Load`) et la somme de la demande nette et des énergies renouvelables :
+
+```{r}
+par(mfrow=c(1,1)) 
+plot(Data0$Date, Data0$Load, type='l', col=col[1], main="Load dans le temps") 
+lines(Data0$Date, Data0$Net_demand + Data0$Solar_power + Data0$Wind_power, type='l', col=col[2], main="Net_demand + Solar_power + Wind_power")
+# Ici, on ne constate qu'une seule courbe mais on a bien la courbe Load ET la courbe Net_demand+Solar_power+Wind_power
+```
+
+On remarque également que la température extérieure (`Temp`) présente une forte corrélation négative avec la demande nette :
+
+```{r}
+par(mfrow=c(1,1)) 
+plot(Data0$Date, scale(Data0$Net_demand), type='l', col=col[1], main="Net_demand et (-Temp) dans le temps") 
+lines(Data0$Date, -scale(Data0$Temp), type='l', col=col[2])
+```
+
+### Analyse bidimensionnelle
+
+L’analyse bidimensionnelle permet d’étudier les relations entre la demande nette et différentes variables catégorielles et continues. Nous illustrons ces corrélations par des boxplots et scatterplots.
+
+Par exemple, la demande nette diminue fortement lors des jours fériés (`BH`) et des périodes estivales (`Summer_break`) :
+
+```{r}
+par(mfrow=c(2, 2)) 
+boxplot(Data0$Net_demand ~ Data0$BH, col=col[1], main="Net_demand si jour férié") 
+boxplot(Data0$Net_demand ~ Data0$Summer_break, col=col[2], main="Net_demand si summer break") 
+boxplot(Data0$Net_demand ~ Data0$WeekDays, col=col[3], main="Net_demand selon jour de la semaine")
+boxplot(Data0$Net_demand ~ Data0$DLS, col=col[4], main="Net_demand si heure d'été")
+```
+
+L'analyse des corrélations continues met en évidence l'importance notable de la température :
+
+```{r}
+par(mfrow=c(2, 2)) 
+plot(Data0$Net_demand ~ Data0$Temp, col=col[1], main="Net_demand selon Temp") 
+plot(Data0$Net_demand ~ Data0$Wind, col=col[2], main="Net_demand selon Wind") 
+plot(Data0$Net_demand ~ Data0$Nebulosity, col=col[3], main="Net_demand selon Nebulosity") 
+plot(Data0$Net_demand ~ Data0$toy, col=col[4], main="Net_demand selon toy (time of year)")
+```
+
+## Sélection des variables
+
+Cette section vise à déterminer les variables explicatives optimales pour prédire la variable cible Net_demand. Nous employons deux approches principales : une analyse par corrélation linéaire ainsi qu'une sélection approfondie basée sur des modèles de régression linéaire et Random Forest.
+
+### Corrélation linéaire
+
+Dans un premier temps, nous examinons l’association linéaire des variables explicatives avec la variable cible Net_demand en calculant les corrélations de Pearson. Un seuil absolu de 0,3 est fixé afin de ne conserver que les variables montrant une corrélation significative. Cette étape préliminaire permet d’éliminer rapidement les variables peu pertinentes.
+
+La matrice de corrélation résultante, incluant les niveaux de significativité statistique, est présentée ci-dessous :
+
+```{r}
+cor_lin = cor(Data0[, sapply(Data0, is.numeric)], method = "pearson")["Net_demand", ]
+variables_lincor = names(cor_lin[abs(cor_lin) > 0.3])
+p_values_cor_lin = cor.mtest(Data0[, variables_lincor], conf.level = 0.95)$p
+cor_lin_mat = cor(Data0[, variables_lincor], method = "pearson")
+corrplot(cor_lin_mat, method = "color", addCoef.col = "black", tl.col = "black", tl.srt = 45,
+         number.cex = 0.75, sig.level = 0.05, p.mat = p_values_cor_lin, insig = "blank")
+```
+
+### Sélection des variables via Régression Linéaire
+
+Nous approfondissons la sélection de variables en employant une régression linéaire multiple avec différentes stratégies de sélection :
+
+-   Modèle complet : Il inclut l'ensemble des variables disponibles (à l'exception de Date et BH_after) afin de disposer d'une référence exhaustive.
+
+-   Modèle réduit : Ce modèle exclut les variables associées aux zones de vacances (Holiday_zone_a, Holiday_zone_b, Holiday_zone_c) dans l'objectif de tester l'impact de ces dernières sur la précision prédictive.
+
+-   Sélection backward : Basée sur un critère BIC, cette approche permet d'effectuer une sélection automatique descendante en supprimant progressivement les variables les moins pertinentes, optimisant ainsi la complexité du modèle.
+
+Nous comparons ces modèles selon plusieurs métriques, notamment le RMSE, le MAPE et la Pinball Loss, résumées dans le tableau ci-dessous :
+
+```{r}
+# Pré traitement des données
+discret = c("WeekDays", "BH_before", "BH", "BH_after", 
+            "DLS","Summer_break", "Christmas_break", 
+            "Holiday", "Holiday_zone_a", "Holiday_zone_b", 
+            "Holiday_zone_c", "BH_Holiday", "Month")
+Data0[, discret] <- lapply(Data0[, discret], as.factor)
+Data1[, discret] <- lapply(Data1[, discret], as.factor)
+Data0 = Data0[-c(2, 6, 7)]
+
+# ATTENTION : Si vous voulez rééxécuter les cellules des plot précédents, rééxécutez d'abord celle dans l'introduction
+```
+
+```{r}
+rl.complet <- lm(Net_demand ~. -Date -BH_after, data = Data0)
+# ajuste un modele sans les zone de vacances
+eq_sans_zone = Net_demand ~. -Date -BH_after -Holiday_zone_a -Holiday_zone_b - Holiday_zone_c
+rl.sans_zone = lm(eq_sans_zone, data=Data0)
+# Utiliser step() pour la (backward) sélection de variables
+# basée sur le BIC pour pénaliser la dimension du modèle
+n = dim(Data0)[1]
+rl.backward <- step(rl.complet, direction = "backward", trace=0, k=log(n))
+eq_backward = Net_demand ~ Load.1 + Temp + Temp_s95_max + Temp_s99_min + Temp_s99_max +
+    Wind + Wind_weighted + Nebulosity_weighted + toy + WeekDays +
+    BH_before + BH + Year + Month + Christmas_break + BH_Holiday +
+    Wind_power.1 + Net_demand.7 + Time 
+# ajustons ces rl au train et evaluons les avec une pinball loss
+rl_eval.complet <- lm(Net_demand ~ . -Date -BH_after, data = Data0[sel_a,])
+rl_pred.complet = predict.lm(rl_eval.complet, newdata = Data0[sel_b,])
+res_complet = rl_pred.complet-Data0$Net_demand[sel_b]
+
+rl_eval.sans_zone <- lm(eq_sans_zone, data = Data0[sel_a,])
+rl_pred.sans_zone = predict.lm(rl_eval.sans_zone, newdata = Data0[sel_b,])
+res_sans_zone = rl_pred.sans_zone-Data0$Net_demand[sel_b]
+
+rl_eval.backward <- lm(eq_backward, data = Data0[sel_a,])
+rl_pred.backward = predict.lm(rl_eval.backward, newdata = Data0[sel_b,])
+res_backward = rl_pred.backward-Data0$Net_demand[sel_b]
+
+rl_select = data.frame(
+  Modèle = c("Complet", "Sans zone", "Backward"),
+  BIC = round(c(BIC(rl.complet), BIC(rl.sans_zone), BIC(rl.backward)), digits = 0),
+  AIC = round(c(AIC(rl.complet), AIC(rl.sans_zone), AIC(rl.backward)), digits=0),
+  Pinball = round(c(pinball_loss2(res_complet, 0.8), pinball_loss2(res_sans_zone, 0.8), pinball_loss2(res_backward, 0.8)), digits=0)
+)
+# Afficher le tableau
+gt(rl_select) %>%
+  tab_header(
+    title = "Selection de variables sur RL"
+  ) %>%
+  tab_style(
+  style = cell_text(weight = "bold"),
+  locations = cells_body(
+    columns = c(Pinball),
+    rows = Pinball <= 601))
+```
+
+## Modélisation finale
+
+Dans cette partie, nous présentons et comparons différents modèles prédictifs utilisés pour prévoir la variable cible `Net_demand`. Nous avons notamment testé un modèle GAM (Generalized Additive Model) et plusieurs variantes du modèle Random Forest (RF). L'objectif était d'évaluer leurs performances respectives et de choisir le modèle le plus adapté pour réaliser la prédiction finale.
+
+### Modèle GAM
+
+Le modèle GAM a été choisi pour sa capacité à modéliser efficacement des relations non linéaires et cycliques présentes dans les données. La formulation retenue pour ce modèle est la suivante :
+
+```{r}
+gam_equation <- Net_demand ~
+  s(Time, k = 3, bs = 'cr') +  # tendance générale temporelle
+  s(toy, k = 30, bs = 'cc') +  # effet cyclique annuel (time of year)
+  ti(Temp, k = 10, bs = 'cr') +  # effet non linéaire de la température
+  ti(Temp_s99, k = 10, bs = 'cr') +  # effet de températures extrêmes
+  s(Load.1, bs = 'cr') + s(Load.7, bs = 'cr') +  # consommation historique récente
+  ti(Temp_s99, Temp, bs = c('cr', 'cr'), k = c(10, 10)) +  # interaction température actuelle et extrêmes
+  as.factor(WeekDays) + BH +  # effets calendaires
+  te(Temp_s95_max, Temp_s99_max) +  # interaction entre extrêmes de température
+  Summer_break + Christmas_break +  # périodes spéciales
   te(Temp_s95_min, Temp_s99_min) +
-  s(Wind, bs = 'cr') +
-  ti(Nebulosity_weighted) +
-  ti(Wind_weighted, Temp, bs = 'ts')
-
-# Ajustement du modèle GAM sur l'ensemble d'entraînement
-model_gam <- gam(equation, data = Data0[sel_a, ], select = TRUE, gamma = 1.5)
+  s(Wind, bs = 'cr') +  # influence du vent
+  ti(Nebulosity_weighted) +  # nébulosité pondérée
+  ti(Wind_weighted, Temp, bs = 'ts')  # interaction vent-température
 ```
 
-## Validation approfondie du modèle
+Le choix des variables et des termes non linéaires provient d'une analyse préliminaire (voir section sur la sélection des variables), destinée à capturer efficacement les interactions et les non-linéarités observées dans les données. Le modèle GAM est entraîné avec un paramètre de pénalisation (`gamma = 1.5`) afin de prévenir un surajustement excessif.
 
-### Prévisions et indicateurs de performance
+## Modèles RandomForest
 
-Le modèle a été validé par comparaison directe entre les prédictions obtenues et les observations réelles de l'année 2022. Deux critères de performance majeurs sont utilisés : la Racine de l'Erreur Quadratique Moyenne (RMSE) et la Pinball Loss au quantile de 80% pour évaluer spécifiquement la précision des prévisions dans un contexte opérationnel réaliste.
+Nous avons également testé des modèles Random Forest avec différentes approches de sélection de variables :
 
-``` r
-predictions_sel_b <- predict(model_gam, newdata = Data0[sel_b, ])
+-   **RF Complet** : utilise toutes les variables disponibles sans sélection préalable.
 
-# Calcul du RMSE
-rmse_val <- rmse(Data0$Net_demand[sel_b], predictions_sel_b)
-print(paste('RMSE de validation :', rmse_val))
+-   **RF Backward** : utilise les variables sélectionnées par une procédure de sélection par régression linéaire (backward sélection basée sur le BIC).
 
-# Calcul de la Pinball Loss (quantile à 80%)
-pinball_val <- pinball_loss(Data0$Net_demand[sel_b], predictions_sel_b, 0.8)
-print(paste('Pinball Loss à 0.8 :', pinball_val))
+-   **RF Mixte** : intègre les variables les plus importantes identifiées par l'importance par permutation du modèle RF complet et la sélection backward.
+
+### Évaluation et comparaison des modèles
+
+Pour comparer les modèles, nous avons calculé plusieurs métriques sur un échantillon d'évaluation indépendant (année postérieure à 2021) :
+
+-   **RMSE (Root Mean Square Error)** : mesure d'erreur quadratique moyenne.
+
+-   **MAPE (Mean Absolute Percentage Error)** : pourcentage moyen absolu d'erreur.
+
+-   **Pinball loss** : mesure robuste et asymétrique adaptée aux problèmes de prévision.
+
+Le tableau suivant récapitule les résultats obtenus :
+
+```{r}
+gam_model <- gam(gam_equation, data = Data0[sel_a,], select = TRUE, gamma = 1.5)
+
+# Evaluation 
+eval_pred = predict(gam_model, newdata= Data0[sel_b,])
+gam1_rmse = rmse.old(Data0$Net_demand[sel_b]-eval_pred)
+gam1_mape = mape(Data0$Net_demand[sel_b], eval_pred)
+gam1_pinball = pinball_loss2(Data0$Net_demand[sel_b]-eval_pred, 0.8)
+
+
+###########
+### RF ###
+###########
+
+# Define the equation for rf
+rf_equation <- Net_demand ~ Time + toy + Temp + Temp_s99 + Load.1 + Load.7 +
+  WeekDays + BH + Temp_s95_max * Temp_s99_max +
+  Summer_break + Christmas_break + Temp_s95_min * Temp_s99_min +
+  Wind + Nebulosity_weighted + Wind_weighted * Temp
+
+# Train rf on train set
+rf_model = randomForest(rf_equation, data=Data0[sel_a,])
+
+# Evaluation 
+eval_pred = predict(rf_model, newdata= Data0[sel_b,])
+rf1_rmse = rmse.old(Data0$Net_demand[sel_b]-eval_pred)
+rf1_mape = mape(Data0$Net_demand[sel_b], eval_pred)
+rf1_pinball = pinball_loss2(Data0$Net_demand[sel_b]-eval_pred, 0.8)
+
+
+###################
+### Loss Table ###
+###################
+
+# Créer un DataFrame avec les noms des modèles et leurs pertes
+model_losses = data.frame(
+  Modèle = c("GAM 1", "RF 1"),
+  RMSE = c(gam1_rmse, rf1_rmse),
+  MAPE = c(gam1_mape, rf1_mape),
+  Pinball = c(gam1_pinball, rf1_pinball)
+)
+
+# Afficher le tableau
+gt(model_losses) %>%
+  tab_header(
+    title = "Pertes par modèle"
+  ) %>%
+  tab_style(
+  style = cell_text(weight = "bold"),
+  locations = cells_body(
+    columns = vars(Pinball),
+    rows = Pinball < 700))
 ```
-
-## Analyses graphiques détaillées
-
-### Distribution des résidus
-
-Les résidus permettent d'évaluer qualitativement la qualité des prédictions réalisées.
-
-``` r
-residus_val <- Data0$Net_demand[sel_b] - predictions_sel_b
-hist(residus_val, breaks = 30, main = "Distribution des Résidus (Validation)", xlab = "Résidus")
-```
-
-### Comparaison temporelle approfondie
-
-Une comparaison visuelle précise entre les prévisions et les observations réelles est indispensable pour juger qualitativement de la capacité prédictive du modèle.
-
-``` r
-plot(Data0$Date[sel_b], Data0$Net_demand[sel_b], type = 'l', col = 'black', main = 'Comparaison Prévisions/Observations', ylab = 'Demande Nette (MW)', xlab = 'Date')
-lines(Data0$Date[sel_b], predictions_sel_b, col = 'blue')
-legend("topright", legend = c("Observations", "Prévisions GAM"), col = c("black", "blue"), lty = 1)
-```
-
-### Importance et pertinence des prédicteurs
-
-L'importance relative et la contribution des variables explicatives sont illustrées et quantifiées.
-
-``` r
-summary(model_gam)
-plot(model_gam, pages=1, residuals=TRUE, shade=TRUE, main="Effets des prédicteurs dans le GAM")
-```
-
-## Validation croisée par blocs : robustesse du modèle
-
-Pour évaluer la robustesse et la stabilité du modèle, une validation croisée par blocs a été effectuée :
-
-``` r
-Nblock <- 10
-borne_block <- seq(1, length(sel_a), length = Nblock + 1) %>% floor
-
-blockRMSE <- function(equation, block) {
-  mod <- gam(as.formula(equation), data = Data0[sel_a[-block], ])
-  pred <- predict(mod, newdata = Data0[sel_a[block], ])
-  return(Data0$Net_demand[sel_a[block]] - pred)
-}
-
-residus_blocks <- lapply(1:Nblock, function(i) blockRMSE(equation, borne_block[i]:borne_block[i+1])) %>% unlist
-rmse_blocks <- rmse(residus_blocks)
-print(paste('RMSE Validation Croisée par blocs :', rmse_blocks))
-
-hist(residus_blocks, breaks = 30, main = "Résidus de Validation Croisée par Blocs", xlab = "Résidus")
-```
-
-## Conclusion et perspectives
-
-Le modèle GAM avancé présenté offre des résultats robustes et fiables, démontrant sa pertinence pour anticiper la demande électrique nette en France. À l'avenir, des améliorations pourraient être envisagées en intégrant des approches hybrides telles que GAM combiné avec des méthodes de Random Forest, ainsi que des approches adaptatives comme les modèles d'apprentissage en ligne ou les filtres de Kalman dynamiques pour accroître encore la précision des prédictions.
