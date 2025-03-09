@@ -181,13 +181,6 @@ lines(Data0$Date[sel_b], Data0$Net_demand[sel_b], type='l', col=col[2])
 plot(Data0$Date[sel_b], res_backward, type='l', col=col[3], main="Résidus") # residus
 
 
-
-####################################
-### Importance plot avec les RF ###
-####################################
-
-
-
 ###############################
 ### Importance plot avec RF ###
 ###############################
