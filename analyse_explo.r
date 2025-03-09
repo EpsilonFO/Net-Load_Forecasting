@@ -54,6 +54,7 @@ par(mfrow=c(1,1))
 plot(Data0$Date, Data0$Net_demand, type='l', xlim=range(Data0$Date, Data1$Date), main="Net_demand dans le temps")
 
 # plot variables sur temps : Load, Net_demand, Solar, Wind
+
 par(mfrow=c(2,2))
 plot(Data0$Date, Data0$Load, type='l', col=col[1], main="Load dans le temps")
 plot(Data0$Date, Data0$Net_demand, type='l', col=col[2], main="Net_demand dans le temps")
@@ -99,6 +100,7 @@ plot(Data0$Net_demand ~ Data0$Wind, col=col[2], main="Net_demand selon Wind")
 plot(Data0$Net_demand ~ Data0$Nebulosity, col=col[3], main="Net_demand selon Nebulosity")
 plot(Data0$Net_demand ~ Data0$toy, col=col[4], main="Net_demand selon toy (time of year)")
 
+
 par(mfrow=c(2, 2)) # mettre month en discret ? suit pas mal le toy
 plot(Data0$Net_demand ~ Data0$Month, col=col[1], main="Net_demand selon Month")
 plot(Data0$Net_demand ~ Data0$Wind_weighted, col=col[2], main="Net_demand selon Wind_weighted")
@@ -109,7 +111,6 @@ plot(Data0$Net_demand ~ Data0$Temp_s95, col=col[4], main="Net_demand selon Temp_
 ###################
 ### Conclusion ###
 ###################
-
 
 ### Analyse Unidim
 # On voit cycle de la Net_demand
@@ -147,3 +148,4 @@ plot(Data0$Net_demand ~ Data0$Temp_s95, col=col[4], main="Net_demand selon Temp_
 # et les vacances => plus bas vers le summer_break
 # retrouve le même effet mais en discret pour month
 # faut-il le passer en factor ? 
+
