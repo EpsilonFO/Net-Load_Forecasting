@@ -35,7 +35,6 @@ sel_b <- which(Data0$Year>2021) # eval index
 ### GAM ###
 ############
 
-# Define the equation for the GAM model with advanced techniques
 gam_equation <- Net_demand ~
   s(Time, k = 3, bs = 'cr') +
   s(toy, k = 30, bs = 'cc') +
@@ -53,10 +52,12 @@ gam_equation <- Net_demand ~
   ti(Wind_weighted, Temp, bs = 'ts')
 
 # Train the GAM model with shrinkage on training set
-gam_model <- gam(gam_equation, data = Data0[sel_a,], select = TRUE, gamma = 1.5)
-
+g <- gam(gam_equation, data = Data0[sel_a,])
+g.forecast <- predict(g, newdata=Data0)
+terms0 <- predict(g, newdata=Data0, type='terms')
+colnames(terms0) <- paste0("gterms_", c(1:ncol(terms0)))
 # Evaluation 
-eval_pred = predict(gam_model, newdata= Data0[sel_b,])
+eval_pred = predict(g, newdata= Data0[sel_b,])
 gam1_rmse = rmse.old(Data0$Net_demand[sel_b]-eval_pred)
 gam1_mape = mape(Data0$Net_demand[sel_b], eval_pred)
 gam1_pinball = pinball_loss2(Data0$Net_demand[sel_b]-eval_pred, 0.8)
@@ -81,6 +82,25 @@ rf1_rmse = rmse.old(Data0$Net_demand[sel_b]-eval_pred)
 rf1_mape = mape(Data0$Net_demand[sel_b], eval_pred)
 rf1_pinball = pinball_loss2(Data0$Net_demand[sel_b]-eval_pred, 0.8)
 
+residuals <- c(Block_residuals, Data0[sel_b,]$Net_demand-g.forecast[sel_b])
+Data0_rf <- data.frame(Data0, terms0)
+Data0_rf$res <- residuals
+Data0_rf$res.48 <- c(residuals[1], residuals[1:(length(residuals)-1)])
+Data0_rf$res.336 <- c(residuals[1:7], residuals[1:(length(residuals)-7)])
+
+cov <- "Time + toy + Temp + Load.1 + Load.7 + Temp_s99 + WeekDays + BH + Temp_s95_max + Temp_s99_max + Summer_break  + Christmas_break + Temp_s95_min +Temp_s99_min + DLS  + "
+gterm <-paste0("gterms_", c(1:ncol(terms0)))
+gterm <- paste0(gterm, collapse='+')
+cov <- paste0(cov, gterm, collapse = '+')
+formule_rf <- paste0("Net_demand", "~", cov)
+formule_rf
+
+qrf_gam<- ranger::ranger(formule_rf, data = Data0_rf[sel_a,], importance =  'permutation', seed=1, , quantreg=TRUE)
+quant=0.8
+qrf_gam.forecast <- predict(qrf_gam, data=Data0_rf[sel_b,], quantiles =quant, type = "quantiles")$predictions%>%as.numeric+g.forecast[sel_b]
+qrf_gam_rmse = rmse.old(Data0$Net_demand[sel_b]-qrf_gam.forecast)
+qrf_gam_mape = mape(Data0$Net_demand[sel_b], qrf_gam.forecast)
+qrf_gam_pinball = pinball_loss2(Data0$Net_demand[sel_b]-qrf_gam.forecast, quant)
 
 ###################
 ### Loss Table ###
@@ -88,10 +108,10 @@ rf1_pinball = pinball_loss2(Data0$Net_demand[sel_b]-eval_pred, 0.8)
 
 # Créer un DataFrame avec les noms des modèles et leurs pertes
 model_losses = data.frame(
-  Modèle = c("GAM 1", "RF 1"),
-  RMSE = c(gam1_rmse, rf1_rmse),
-  MAPE = c(gam1_mape, rf1_mape),
-  Pinball = c(gam1_pinball, rf1_pinball)
+  Modèle = c("GAM 1", "RF 1", "QRF_GAM"),
+  RMSE = c(gam1_rmse, rf1_rmse, qrf_gam_rmse),
+  MAPE = c(gam1_mape, rf1_mape, qrf_gam_mape),
+  Pinball = c(gam1_pinball, rf1_pinball, qrf_gam_pinball)
 )
 
 # Afficher le tableau
@@ -116,13 +136,13 @@ rf_model = randomForest(rf_equation, data=Data0)
 
 # Make predictions on the test data
 gam_forecast = predict(gam_model, newdata = Data1)
-#rf_forecast = predict(rf_model, data=Data1)
+rf_forecast = predict(rf_model, newdata=Data1)
 
 # Load the sample submission file
 submit = read_delim(file = "Data/sample_submission.csv", delim = ",")
 
 # Assign the forecasted values to the submission file
 submit$Net_demand = gam_forecast
-
+submit$Net_demand = rf_forecast
 # Write the submission file to CSV
 write.table(submit, file = "Data/submission_rf.csv", quote = FALSE, sep = ",", dec = '.', row.names = FALSE)

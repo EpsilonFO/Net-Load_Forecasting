@@ -175,9 +175,11 @@ gt(rl_select) %>%
     columns = vars(Pinball),
     rows = Pinball <= 601))
 
-par(mfrow=c(2,1))
+par(mfrow=c(1,1))
 plot(Data0$Date[sel_b], rl_pred.backward, type='l', col=col[1], main="Prediction et valeur réelle sur l'évalutaion pour RL backward") 
 lines(Data0$Date[sel_b], Data0$Net_demand[sel_b], type='l', col=col[2])
+par(mfrow=c(1,1))
+
 plot(Data0$Date[sel_b], res_backward, type='l', col=col[3], main="Résidus") # residus
 
 
@@ -294,7 +296,9 @@ rf3_rmse = rmse.old(Data0$Net_demand[sel_b]-rf3_pred)
 rf3_mape = mape(Data0$Net_demand[sel_b], rf3_pred)
 rf3_pinball = pinball_loss2(Data0$Net_demand[sel_b]-rf3_pred, 0.8)
 
-rf1_pinball, rf2_pinball, rf3_pinball
+rf1_pinball
+rf2_pinball
+rf3_pinball
 
 rf_select = data.frame(
   Modèle = c("Complet", "Backward", "Mixte"),
@@ -318,9 +322,9 @@ gt(rf_select) %>%
   locations = cells_body(
     columns = c(Pinball),
     rows = Pinball <= 480))
-
-par(mfrow=c(2,1))
+par(mfrow=c(1,1))
 plot(Data0$Date[sel_b], rf3_pred, type='l', col=col[1], main="Prediction et valeur réelle sur l'évalutaion pour RF mixte") 
 lines(Data0$Date[sel_b], Data0$Net_demand[sel_b], type='l', col=col[2])
+par(mfrow=c(1,1))
 plot(Data0$Date[sel_b], Data0$Net_demand[sel_b]-rf3_pred, type='l', col=col[3], main="Résidus") # residus
 
