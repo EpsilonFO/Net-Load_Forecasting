@@ -319,3 +319,8 @@ gt(rf_select) %>%
     columns = c(Pinball),
     rows = Pinball <= 480))
 
+par(mfrow=c(2,1))
+plot(Data0$Date[sel_b], rf3_pred, type='l', col=col[1], main="Prediction et valeur réelle sur l'évalutaion pour RF mixte") 
+lines(Data0$Date[sel_b], Data0$Net_demand[sel_b], type='l', col=col[2])
+plot(Data0$Date[sel_b], Data0$Net_demand[sel_b]-rf3_pred, type='l', col=col[3], main="Résidus") # residus
+
