@@ -21,28 +21,26 @@ col <- yarrr::piratepal("basel") # couleur des graphiques
 ### Import et Prepro ###
 #########################
 # Load the data
-train <- read_csv('Data/train.csv') # for training and evaluating
-test <- read_csv('Data/test.csv') # to make prediction
+Data0 <- read_csv('Data/train.csv') # for training and evaluating
+Data1 <- read_csv('Data/test.csv') # to make prediction
 
 # Preprocess the data
-Data0 <- train
 Data0$Time <- as.numeric(Data0$Date)
-Data1 <- test
 Data1$Time <- as.numeric(Data1$Date)
 
 # Convert categorical variables to factors
 discret = c("WeekDays", "BH_before", "BH", "BH_after", 
             "DLS","Summer_break", "Christmas_break", 
             "Holiday", "Holiday_zone_a", "Holiday_zone_b", 
-            "Holiday_zone_c", "BH_Holiday")
+            "Holiday_zone_c", "BH_Holiday", "Month")
 Data0[, discret] <- lapply(Data0[, discret], as.factor)
 Data1[, discret] <- lapply(Data1[, discret], as.factor)
-
-str(Data0)
+# enleve les variables que l'on a pas dans Data1 : Load, Solar_power, Wind_power
+Data0 = Data0[-c(2, 6, 7)]
 
 # Split Data0 into train/eval dataset
-sel_a = which(Data0$Year<=2021) # training index
-sel_b = which(Data0$Year>2021) # eval index
+sel_a = which(Data0$Year<=2019) # training index
+sel_b = which(Data0$Year>2019) # eval index
 
 
 #########################
@@ -56,15 +54,15 @@ plot(Data0$Date, Data0$Net_demand, type='l', xlim=range(Data0$Date, Data1$Date),
 # plot variables sur temps : Load, Net_demand, Solar, Wind
 
 par(mfrow=c(2,2))
-plot(Data0$Date, Data0$Load, type='l', col=col[1], main="Load dans le temps")
-plot(Data0$Date, Data0$Net_demand, type='l', col=col[2], main="Net_demand dans le temps")
-plot(Data0$Date, Data0$Solar_power, type='l', col=col[3], main="Solar_power dans le temps")
-plot(Data0$Date, Data0$Wind_power, type='l', col=col[4], main="Wind_power dans le temps")
+plot(Data0$Date, Data0$Load.1, type='l', col=col[1], main="Load dans le temps")
+plot(Data0$Date, Data0$Net_demand.1, type='l', col=col[2], main="Net_demand dans le temps")
+plot(Data0$Date, Data0$Solar_power.1, type='l', col=col[3], main="Solar_power dans le temps")
+plot(Data0$Date, Data0$Wind_power.1, type='l', col=col[4], main="Wind_power dans le temps")
 
 # Load = Net_demand + Solar + Wind
 par(mfrow=c(2,1))
-plot(Data0$Date, Data0$Load, type='l', col=col[1], main="Load dans le temps")
-plot(Data0$Date, Data0$Net_demand+Data0$Solar_power+Data0$Wind_power, type='l', col=col[2], main="Net_demand + Solar_power + Wind_power")
+plot(Data0$Date, Data0$Load.1, type='l', col=col[1], main="Load dans le temps")
+plot(Data0$Date, Data0$Net_demand.1+Data0$Solar_power.1+Data0$Wind_power.1, type='l', col=col[2], main="Net_demand + Solar_power + Wind_power")
 
 # plot variables sur temps : net_demand, toy, Temp
 par(mfrow=c(3,1))
@@ -108,6 +106,14 @@ plot(Data0$Net_demand ~ Data0$Nebulosity_weighted, col=col[3], main="Net_demand 
 plot(Data0$Net_demand ~ Data0$Temp_s95, col=col[4], main="Net_demand selon Temp_s95")
 
 
+par(mfrow=c(2, 2)) # mettre month en discret ? suit pas mal le toy
+#plot(Data0$Net_demand ~ Data0$Month, col=col[1], main="Net_demand selon Month")
+plot(Data0$Net_demand ~ Data0$toy, col=col[1], main="Net_demand selon toy (time of year)")
+plot(Data0$Net_demand ~ Data0$Wind, col=col[2], main="Net_demand selon Wind")
+plot(Data0$Net_demand ~ Data0$Nebulosity, col=col[3], main="Net_demand selon Nebulosity")
+plot(Data0$Net_demand ~ Data0$Temp, col=col[4], main="Net_demand selon Temp")
+
+
 ###################
 ### Conclusion ###
 ###################
@@ -147,5 +153,5 @@ plot(Data0$Net_demand ~ Data0$Temp_s95, col=col[4], main="Net_demand selon Temp_
 # Clairement lié à la température, la saison
 # et les vacances => plus bas vers le summer_break
 # retrouve le même effet mais en discret pour month
-# faut-il le passer en factor ? 
+# faut-il le passer en factor ? oui le faire
 

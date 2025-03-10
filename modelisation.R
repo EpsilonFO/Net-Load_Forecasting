@@ -38,9 +38,16 @@ Data0[, discret] <- lapply(Data0[, discret], as.factor)
 Data1[, discret] <- lapply(Data1[, discret], as.factor)
 
 # Split Data0 into train/eval dataset
-sel_a <- which(Data0$Year<=2021) # training index
-sel_b <- which(Data0$Year>2021) # eval index
+sel_a <- which(Data0$Year<=2019) # training index
+sel_b <- which(Data0$Year>2019) # eval index
 
+length(sel_b)
+dim(Data0)
+
+975/3471
+
+Data0$Date
+Data1$Date
 # Drop covariables that are not in test dataset : Load, Solar_power, Wind_power
 Data0 = Data0[-c(2, 6, 7)]
 

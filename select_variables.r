@@ -20,13 +20,11 @@ col <- yarrr::piratepal("basel") # couleur des graphiques
 ### Import et Prepro ###
 #########################
 # Load the data
-train <- read_csv('Data/train.csv') # for training and evaluating
-test <- read_csv('Data/test.csv') # to make prediction
+Data0 <- read_csv('Data/train.csv') # for training and evaluating
+Data1 <- read_csv('Data/test.csv') # to make prediction
 
 # Preprocess the data
-Data0 <- train
 Data0$Time <- as.numeric(Data0$Date)
-Data1 <- test
 Data1$Time <- as.numeric(Data1$Date)
 
 # Convert categorical variables to factors
@@ -36,13 +34,12 @@ discret = c("WeekDays", "BH_before", "BH", "BH_after",
             "Holiday_zone_c", "BH_Holiday", "Month")
 Data0[, discret] <- lapply(Data0[, discret], as.factor)
 Data1[, discret] <- lapply(Data1[, discret], as.factor)
-
-# Split Data0 into train/eval dataset
-sel_a = which(Data0$Year<=2021) # training index
-sel_b = which(Data0$Year>2021) # eval index
-
 # Drop covariables that are not in test dataset : Load, Solar_power, Wind_power
 Data0 = Data0[-c(2, 6, 7)]
+
+# Split Data0 into train/eval dataset
+sel_a = which(Data0$Year<=2019) # training index
+sel_b = which(Data0$Year>2019) # eval index
 
 
 #############################
@@ -56,8 +53,9 @@ cor_lin = cor(Data0[,sapply(Data0, is.numeric)], method = "pearson")["Net_demand
 seuil = 0.3
 variables_lincor = names(cor_lin[abs(cor_lin) > seuil])
 
-# calcul des p-values pour savoir si c'est significative
-p_values_cor_lin <- cor.mtest(Data0[,variables_lincor], conf.level = 0.95)$p#["Net_demand", ]
+# calcul des p-values du test de pearson 
+# corrélation significative ?
+p_values_cor_lin <- cor.mtest(Data0[,variables_lincor], conf.level = 0.95, method="pearson")$p#["Net_demand", ]
 
 # Calculer et afficher la matrice de corrélation de la selection
 cor_lin_mat = cor(Data0[,variables_lincor], method = "pearson")
@@ -68,7 +66,8 @@ corrplot(cor_lin_mat, method = "color",
          sig.level = 0.05, # niveau de significativité à 5%
          p.mat = p_values_cor_lin,
          insig = "blank", # Ne pas afficher les corrélations non significatives
-         addgrid.col = NA, cl.pos = "n")
+         addgrid.col = NA, cl.pos = "n", 
+         type="lower")
 
 
 #################################
@@ -83,7 +82,7 @@ seuil = 0.3
 variables_nlincor = names(cor_nlin[abs(cor_nlin) > seuil])
 
 # calcul des p-values pour savoir si c'est significative
-p_values_cor_nlin <- cor.mtest(Data0[,variables_nlincor], conf.level = 0.95)$p#["Net_demand", ]
+p_values_cor_nlin <- cor.mtest(Data0[,variables_nlincor], conf.level = 0.95, method='spearman')$p#["Net_demand", ]
 
 # Calculer et afficher la matrice de corrélation de la selection
 cor_nlin_mat = cor(Data0[,variables_nlincor], method = "pearson")
@@ -101,7 +100,7 @@ corrplot(cor_nlin_mat, method = "color",
 ##############################
 
 # ajuste une reg lin complete
-rl.complet <- lm(Net_demand ~. -Date -BH_after, data = Data0)
+rl.complet <- lm(Net_demand ~ Net_demand.1 + Load.1, data = Data0)
 summary(rl.complet)
 # test de Student : coef egale à 0 ?
 # variable très significative non nulle (***) : 
